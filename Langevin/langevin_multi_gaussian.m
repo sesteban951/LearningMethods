@@ -4,7 +4,7 @@
 close all; clear all; clc;
 
 % select the number of distributions
-n_dists = 3;
+n_dists = 20;
 mu_xlim = 2.5;
 mu_ylim = 2.5;
 
@@ -12,16 +12,13 @@ mu_ylim = 2.5;
 n_pts = 40;
 
 % create containers for langevin dynamics
-n_trajectories = 50;
+n_trajectories = 100;
 
 % Langevin parameters
-alpha = 0.006;          % time step
-num_steps = 200;        % number of steps
+alpha = 0.005;          % time step
+num_steps = 150;        % number of steps
 max_step_length = 1.0;  % maximum step length (to prevent instability)
-annealing = 1;          % annealing effect on or off (for Langevin dynamics)
-
-% Langevin trajectories
-pts_per_sec = 50;
+annealing = 1;          % annealing effect on or off, linear in num steps (for Langevin dynamics)
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -30,7 +27,7 @@ mu_list = zeros(2, 1, n_dists);
 Sigma_list = zeros(2, 2, n_dists);
 for i = 1:n_dists
     % sample a random mean
-    mu_list(:, :, i) = sample_vector(2, mu_xlim, mu_ylim);
+    mu_list(:, :, i) = sample_vector(-mu_xlim, mu_xlim, -mu_ylim, mu_ylim);
     
     % sample a random covariance matrix
     % Sigma_list(:, :, i) = sample_pos_def_matrix(2);
@@ -38,8 +35,8 @@ for i = 1:n_dists
 end
 
 % sample some weights
-% weights = sample_simplex(n_dists);
-weights = ones(n_dists, 1) / n_dists;
+weights = sample_simplex(n_dists);
+% weights = ones(n_dists, 1) / n_dists;
 
 % compute the mean of the means
 mu_avg = zeros(2, 1);
@@ -48,8 +45,12 @@ for i = 1:n_dists
 end
 
 % create a grid of (x, y) points
-x_range = linspace(mu_avg(1) - 3.0, mu_avg(1) + 3.0, n_pts);
-y_range = linspace(mu_avg(2) - 3.0, mu_avg(2) + 3.0, n_pts);
+xlim_max = mu_avg(1) + 3.0;
+xlim_min = mu_avg(1) - 3.0;
+ylim_max = mu_avg(2) + 3.0;
+ylim_min = mu_avg(2) - 3.0;
+x_range = linspace(xlim_min, xlim_max, n_pts);
+y_range = linspace(ylim_min, ylim_max, n_pts);
 [X, Y] = meshgrid(x_range, y_range);
 
 % pack into points
@@ -90,7 +91,7 @@ X_trajs = zeros(num_steps, 2, n_trajectories); % initialize Langevin trajectory
 % populate the intial conditions
 for i = 1:n_trajectories
     % sample a random point in the domain
-    x0 = sample_vector(2, mu_xlim, mu_ylim);
+    x0 = sample_vector(xlim_min, xlim_max, ylim_min, ylim_max);
 
     % insert into the Langevin container
     X_trajs(1, :, i) = x0';
@@ -103,19 +104,17 @@ for j = 1:n_trajectories
         xk = X_trajs(i-1, :, j)';
         grad = normal_pdf_GMM_grad(xk, mu_list, Sigma_list, weights);
 
-        % get a noise vector from standard normal distribution
-        noise_vec = randn(2, 1);
-
         % annealing effect
         if annealing == 1
             % compute the annealing factor
-            anneal_factor = 1 - (i / num_steps);
+            sigma = 1 - (i / num_steps);
+            noise_vec = normrnd(0, sigma^2, 2, 1);
         else
-            anneal_factor = 1;
+            noise_vec = randn(2, 1);
         end
 
         % compute the step length and saturate if necessary
-        step_direction = anneal_factor * (alpha * grad + sqrt(2 * alpha) * noise_vec);
+        step_direction = alpha * grad + sqrt(2 * alpha) * noise_vec;
         step_direction_length = norm(step_direction);
         if step_direction_length > max_step_length
             step_direction = (step_direction / step_direction_length) * max_step_length;
@@ -150,10 +149,21 @@ view(45, 45); % 3D view angle
 % plot the gradient field
 subplot(1, 2, 2);
 hold on;
+
 imagesc(x_range, y_range, Z);
 xline(0); yline(0);
 axis xy; % ensures y increases upwards
 axis equal tight;
+x_max = max(X_trajs(:, 1, :), [], 'all');
+x_max = max(x_max, max(x_range));
+x_min = min(X_trajs(:, 1, :), [], 'all');
+x_min = min(x_min, min(x_range));
+y_min = min(X_trajs(:, 2, :), [], 'all');
+y_min = min(y_min, min(y_range));
+y_max = max(X_trajs(:, 2, :), [], 'all');
+y_max = max(y_max, max(y_range));
+axis([x_min x_max y_min y_max]);
+
 xlabel('x'); ylabel('y');
 title('2D Heat Map of Multivariate Gaussian');
 colorbar;
@@ -175,9 +185,6 @@ for i = 1:num_steps
     title(['Langevin Dynamics Trajectories (Step ' num2str(i) ' / ' num2str(num_steps) ')']);
 
     drawnow;
-
-    % pause for a moment
-    % pause(1/pts_per_sec);
 
     if i ~= num_steps
         % delete the previous points
@@ -267,10 +274,10 @@ function grad_p = normal_pdf_GMM_grad(x, mu_list, sigma_list, weights)
 end
 
 % sample a random vector
-function v = sample_vector(n, mu_xlim, mu_ylim)
+function v = sample_vector(xmin, xmax, ymin, ymax)
     % random vector with uniform distribution
-    v = [(rand(1) * (2 * mu_xlim)) - mu_xlim; 
-         (rand(1) * (2 * mu_ylim)) - mu_ylim];
+    v = [(rand(1) * (xmax - xmin)) + xmin; 
+         (rand(1) * (ymax - ymin)) + ymin];
 end
 
 % sample a positive definite symmetric matrix
