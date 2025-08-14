@@ -98,6 +98,10 @@ class ODESolver:
 # DYNAMICS
 ##################################################################################
 
+#--------------------------------------------------------------------
+#-------------------- Double Integrator Dynamics --------------------
+#--------------------------------------------------------------------
+
 class DoubleIntegrator:
     """
     Double Integrator Dynamics Class
@@ -122,9 +126,7 @@ class DoubleIntegrator:
     # dynamics function
     def f(self, x, u):
         """
-            ẋ = Ax + Bu
-            where A = [[0, 1],   B = [[0],
-                       [0, 0]]        [1]]
+            ẋ = []
         """
         # make sure the shape of x and u is correct
         assert x.shape == (self.nx, 1), "State x must be of shape (nx, 1)"
@@ -138,9 +140,8 @@ class DoubleIntegrator:
     # feedback controller
     def k(self, t, x):
         """
-            Simple proportional controller
+            Simple PD controller
             u = -Kx
-            where K = [[1, 0]]
         """
         # make sure the shape of x is correct
         assert x.shape == (self.nx, 1), "State x must be of shape (nx, 1)"
@@ -153,6 +154,71 @@ class DoubleIntegrator:
 
         return u.reshape((self.nu, 1))
 
+#-----------------------------------------------------------
+#-------------------- Pendulum Dynamics --------------------
+#-----------------------------------------------------------
+
+class Pendulum:
+    """
+        Pendulum Dynamics Class
+    """
+    # initialization
+    def __init__(self):
+
+        # state and input dimensions
+        self.nx = 2
+        self.nu = 1
+
+        # system parameters
+        self.L = 1.0   # length of the pendulum
+        self.m = 1.0   # mass of the pendulum
+        self.g = 9.81  # acceleration due to gravity
+        self.b = 0.1   # damping coefficient
+        
+        # gains
+        self.kp = 10.0
+        self.kd = 1.0
+
+    # dynamics function (underactuated robotics Ch 2.1)
+    def f(self, x, u):
+        """
+            m l² θ̈ + b θ̇ + m g l sin(θ) = u
+        """
+        # make sure the shape of x and u is correct
+        assert x.shape == (self.nx, 1), "State x must be of shape (nx, 1)"
+        assert u.shape == (self.nu, 1), "Input u must be of shape (nu, 1)"
+
+        # extract state variables
+        theta = x[0, 0]      # theta (angle)
+        theta_dot = x[1, 0]  # theta_dot (angular velocity)
+        u = u[0, 0]          # control input (torque)
+
+        # compute the dynamics
+        theta_ddot = (u - self.m * self.g * self.L * np.sin(theta) - self.b * theta_dot) / (self.m * self.L**2)
+
+        # build the dynamics vector
+        x_dot = np.array([[theta_dot],
+                          [theta_ddot + u]]).reshape((self.nx, 1))
+
+        return x_dot
+        
+    # feedback controller
+    def k(self, t, x):
+        """
+            Simple PD controller
+        """
+        # make sure the shape of x is correct
+        assert x.shape == (self.nx, 1), "State x must be of shape (nx, 1)"
+
+        # extract state variables
+        theta = x[0, 0]      # theta (angle)
+        theta_dot = x[1, 0]  # theta_dot (angular velocity)
+
+        # compute the control input
+        # u = np.array([-self.kp * theta - self.kd * theta_dot])
+        u = np.array([0.0]) # no torque applied, for simplicity
+
+        return u.reshape((self.nu, 1))
 
 ##################################################################################
 # TESTING
@@ -162,18 +228,19 @@ if __name__ == "__main__":
     
     # Example usage
     dynamics = DoubleIntegrator()
+    # dynamics = Pendulum()  # switch to Pendulum dynamics if desired
 
     # desired integration 
     method = 'RK45'  # or 'RK23', 'DOP853', etc.
     ode_solver = ODESolver(dynamics, method)
 
     # solve a single initial condition
-    x0 = np.array([[1], [1]])  # initial state
-    dt = 0.01                  # time step
-    N = 500                    # number of steps
+    x0 = np.array([[1], [1]])   # initial state
+    dt = 0.02                   # time step
+    N = 200                     # number of steps
 
     # uniformly sample initial conditions
-    N_samples = 50
+    N_samples = 5
     X0 = np.zeros((dynamics.nx, N_samples))
     for i in range(N_samples):
 
@@ -183,16 +250,13 @@ if __name__ == "__main__":
         # store the initial condition
         X0[:, i] = x0.flatten()
 
-    # plot the results
-    # t_traj, x_traj = ode_solver.fwd_propagate(x0, dt, N)
-    # plt.plot(x_traj[0, :], x_traj[1, :], label='Position')
-
     # plot 
     t_traj, X_traj = ode_solver.fwd_propagate_multiple(X0, dt, N)
     for i in range(X_traj.shape[2]):
         plt.plot(X_traj[0, :, i], X_traj[1, :, i], label=f'Condition {i+1}')
 
-    plt.xlabel('Position (x)')
-    plt.ylabel('Velocity (v)')
-    plt.title('Double Integrator Dynamics')
+    plt.xlabel('$x_1$')
+    plt.ylabel('$x_2$')
+    plt.title(dynamics.__class__.__name__)
+    plt.axis('equal')
     plt.show()
